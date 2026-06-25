@@ -5,8 +5,8 @@
 class ClaudeGuard < Formula
   desc "Hardware-isolated, allowlist-firewalled sandbox for running Claude Code"
   homepage "https://github.com/alexander-turner/claude-guard"
-  url "https://github.com/alexander-turner/claude-guard/archive/refs/tags/v0.3.0.tar.gz"
-  sha256 "6c83d2818a577f6fbc9d8a630a5379ed4a15f58b26aa9cfd5f27af88e173ba43"
+  url "https://github.com/alexander-turner/claude-guard/archive/refs/tags/v0.5.0.tar.gz"
+  sha256 "399f96ff937b0b29e5d79aa84130b53805d543897b8f5430565e46a47befb24c"
   license "Apache-2.0"
 
   # Owner + commit this release was cut from. A Homebrew install isn't a git
@@ -15,7 +15,7 @@ class ClaudeGuard < Formula
   # building locally. Fill RELEASE_SHA at release time (see packaging README); a
   # placeholder is simply ignored, so the install falls back to a local build.
   RELEASE_OWNER = "alexander-turner".freeze
-  RELEASE_SHA = "1dfc7a790b183c778240c0b6c9a4ad4616fa9114".freeze
+  RELEASE_SHA = "6075372d1cbbe41e531540535e52ae519373e4b4".freeze
 
   # bash: macOS ships 3.2, the wrapper needs associative arrays + ${var,,}.
   # devcontainer: homebrew-core's @devcontainers/cli, the host CLI the launcher
@@ -36,7 +36,9 @@ class ClaudeGuard < Formula
     # git checkout, so the signed-prebuilt fast path can't match a git-<sha>
     # tag) and resolves its .devcontainer stack relative to bin/, so the whole
     # tree must ship together. Drop only dev/CI artifacts the runtime never
-    # reads.
+    # reads. The prune list and RELEASE_OWNER are synced from config/packaging.json
+    # by scripts/gen-packaging.mjs (shared with the AUR PKGBUILD and nFPM
+    # manifest) — edit them there.
     prune = %w[tests research metrics .git .github node_modules .venv uv.lock]
     libexec.install (Dir["*"] + Dir[".[!.]*"]).reject { |f| prune.include?(f) }
 
@@ -53,14 +55,38 @@ class ClaudeGuard < Formula
       bin.install_symlink libexec/"bin"/w
     end
 
+    # Also override `claude` itself so a user's muscle memory routes through the
+    # guard — the same alias setup.bash/`claude-guard doctor --fix` create at
+    # ~/.local/bin/claude (a symlink to the claude-guard wrapper). The escape
+    # hatch still reaches the real Claude Code CLI: the wrapper's find_real_claude
+    # canonicalizes every PATH candidate and skips any that resolves to itself, so
+    # this symlink is recognized as the guard and never re-exec'd into a loop — a
+    # genuine @anthropic-ai/claude-code `claude` elsewhere on PATH (or relocated to
+    # claude-original) is what `claude-guard --dangerously-use-original-claude` and
+    # the IDE/CI passthroughs launch.
+    bin.install_symlink libexec/"bin"/"claude-guard" => "claude"
+
     bash_completion.install_symlink libexec/"completions/claude-guard.bash" => "claude-guard"
     zsh_completion.install_symlink libexec/"completions/claude-guard.zsh" => "_claude-guard"
     fish_completion.install_symlink libexec/"completions/claude-guard.fish"
+    # bash-completion and fish autoload a completion file by the command name
+    # being completed, so the `claude` alias needs its own entry or tab-completing
+    # `claude` loads nothing (the scripts self-guard, registering `claude` only
+    # when it resolves to the wrapper). zsh needs no twin: its `#compdef
+    # claude-guard claude` tags both names in one file.
+    bash_completion.install_symlink libexec/"completions/claude-guard.bash" => "claude"
+    fish_completion.install_symlink libexec/"completions/claude-guard.fish" => "claude.fish"
     man1.install_symlink libexec/"man/claude-guard.1"
   end
 
   def caveats
-    "Finish setup by running: claude-guard setup"
+    <<~EOS
+      `claude-guard` and `claude` are now both on your PATH — typing `claude`
+      routes through the guard (your real Claude Code CLI stays reachable via
+      `claude-guard --dangerously-use-original-claude`).
+
+      Finish setup by running: claude-guard setup
+    EOS
   end
 
   test do
